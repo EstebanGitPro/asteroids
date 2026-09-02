@@ -57,10 +57,11 @@ class Bullet {
   }
 }
 
-// ── Asteroid ──────────────────────────────────────────────────────────────────
+// ── Asteroid & UFO ────────────────────────────────────────────────────────────
 const RADII  = [0, 16, 30, 50];   // por tamaño 1, 2, 3
 const SPEEDS = [0, 85, 55, 32];   // velocidad base por tamaño
 const POINTS = [0, 100, 50, 20];  // puntos por tamaño
+const UFO_POINTS = [0, 150, 75, 30];  // puntos por tamaño de OVNI
 
 // Forma base para asteroides grandes (normalizada a radio 1)
 const BASE_ASTEROID_SHAPE = [
@@ -132,6 +133,83 @@ class Asteroid {
       ctx.lineTo(this.verts[i][0], this.verts[i][1]);
     ctx.closePath();
     ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// ── UFO ───────────────────────────────────────────────────────────────────────
+// Silueta fija del platillo (normalizada a radio 1), en sentido horario
+const UFO_SHAPE = [
+  [-0.28, -0.60],   // cúpula superior izquierda
+  [ 0.28, -0.60],   // cúpula superior derecha
+  [ 0.56, -0.20],   // hombro derecho
+  [ 1.00,  0.12],   // punta del ala derecha
+  [ 0.50,  0.48],   // casco inferior derecho
+  [-0.50,  0.48],   // casco inferior izquierdo
+  [-1.00,  0.12],   // punta del ala izquierda
+  [-0.56, -0.20],   // hombro izquierdo
+];
+
+const UFO_DOME_Y  = -0.20;   // línea que separa cúpula del casco
+const UFO_DOME_X  =  0.56;
+const UFO_RIM_Y   =  0.12;   // línea del ala, a lo ancho del platillo
+const UFO_RIM_X   =  1.00;
+
+class Ufo {
+  constructor(x, y, size = 3) {
+    this.x    = x;
+    this.y    = y;
+    this.size = size;
+    this.radius = RADII[size];
+    this.dead = false;
+
+    const angle = rand(0, Math.PI * 2);
+    const speed = SPEEDS[size] + rand(-15, 15);
+    this.vx = Math.cos(angle) * speed;
+    this.vy = Math.sin(angle) * speed;
+
+    // Silueta fija escalada al tamaño; el platillo no rota, se mantiene derecho
+    this.verts = UFO_SHAPE.map(([vx, vy]) => [vx * this.radius, vy * this.radius]);
+  }
+
+  update(dt) {
+    this.x = wrap(this.x + this.vx * dt, W);
+    this.y = wrap(this.y + this.vy * dt, H);
+  }
+
+  split() {
+    if (this.size <= 1) return [];
+    return [
+      new Ufo(this.x, this.y, this.size - 1),
+      new Ufo(this.x, this.y, this.size - 1),
+    ];
+  }
+
+  draw() {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.strokeStyle = '#0ff';
+    ctx.lineWidth   = 1.5;
+    ctx.lineJoin    = 'round';
+
+    ctx.beginPath();
+    ctx.moveTo(this.verts[0][0], this.verts[0][1]);
+    for (let i = 1; i < this.verts.length; i++)
+      ctx.lineTo(this.verts[i][0], this.verts[i][1]);
+    ctx.closePath();
+    ctx.stroke();
+
+    // Detalle interno solo en los tamaños grandes, para no ensuciar los chicos
+    if (this.size >= 2) {
+      const r = this.radius;
+      ctx.beginPath();
+      ctx.moveTo(-UFO_DOME_X * r, UFO_DOME_Y * r);
+      ctx.lineTo( UFO_DOME_X * r, UFO_DOME_Y * r);
+      ctx.moveTo(-UFO_RIM_X  * r, UFO_RIM_Y  * r);
+      ctx.lineTo( UFO_RIM_X  * r, UFO_RIM_Y  * r);
+      ctx.stroke();
+    }
+
     ctx.restore();
   }
 }
@@ -277,7 +355,7 @@ class Particle {
 }
 
 // ── Estado del juego ──────────────────────────────────────────────────────────
-let ship, bullets, asteroids, particles;
+let ship, bullets, asteroids, ufos, particles;
 let score, lives, level;
 let state;      // 'playing' | 'dead' | 'gameover'
 let deadTimer;
@@ -294,16 +372,30 @@ function spawnAsteroids(count) {
   }
 }
 
+function spawnUfos(count) {
+  const SAFE_DIST = 130;
+  for (let i = 0; i < count; i++) {
+    let x, y;
+    do {
+      x = rand(0, W);
+      y = rand(0, H);
+    } while (Math.hypot(x - W / 2, y - H / 2) < SAFE_DIST);
+    ufos.push(new Ufo(x, y, 3));
+  }
+}
+
 function initGame() {
   ship          = new Ship();
   bullets   = [];
   asteroids = [];
+  ufos      = [];
   particles = [];
   score  = 0;
   lives  = 3;
   level  = 1;
   state  = 'playing';
   spawnAsteroids(4);
+  spawnUfos(1);
 }
 
 function nextLevel() {
@@ -312,6 +404,7 @@ function nextLevel() {
   particles = [];
   ship.reset();
   spawnAsteroids(3 + level);
+  spawnUfos(Math.min(1 + Math.floor(level / 2), 3));
 }
 
 function explode(x, y, count = 8) {
@@ -344,6 +437,7 @@ function update(dt) {
     particles.forEach(p => p.update(dt));
     particles = particles.filter(p => !p.dead);
     asteroids.forEach(a => a.update(dt));
+    ufos.forEach(u => u.update(dt));
     if (deadTimer <= 0) { state = 'playing'; ship.reset(); }
     return;
   }
@@ -356,13 +450,16 @@ function update(dt) {
   ship.update(dt);
   bullets.forEach(b => b.update(dt));
   asteroids.forEach(a => a.update(dt));
+  ufos.forEach(u => u.update(dt));
   particles.forEach(p => p.update(dt));
 
   bullets   = bullets.filter(b => !b.dead);
   particles = particles.filter(p => !p.dead);
 
-  // Bala vs asteroide
   const newAsteroids = [];
+  const newUfos      = [];
+
+  // Bala vs asteroide
   for (const b of bullets) {
     for (const a of asteroids) {
       if (!a.dead && !b.dead && dist(b, a) < a.radius) {
@@ -378,13 +475,24 @@ function update(dt) {
       }
     }
   }
-  asteroids = asteroids.filter(a => !a.dead).concat(newAsteroids);
-  bullets   = bullets.filter(b => !b.dead);
+
+  // Bala vs OVNI
+  for (const b of bullets) {
+    for (const u of ufos) {
+      if (!u.dead && !b.dead && dist(b, u) < u.radius) {
+        b.dead = true;
+        u.dead = true;
+        score += UFO_POINTS[u.size];
+        explode(u.x, u.y, u.size * 5);
+        newUfos.push(...u.split());
+      }
+    }
+  }
 
   // Nave vs asteroide
-  if (ship.invincible <= 0) {
+  if (ship.invincible <= 0 && !ship.dead) {
     for (const a of asteroids) {
-      if (dist(ship, a) < ship.radius + a.radius * 0.82) {
+      if (!a.dead && dist(ship, a) < ship.radius + a.radius * 0.82) {
         if (ship.shieldActive) {
           ship.shieldActive = false;
           a.dead = true;
@@ -399,8 +507,32 @@ function update(dt) {
     }
   }
 
+  // Nave vs OVNI
+  if (ship.invincible <= 0 && !ship.dead) {
+    for (const u of ufos) {
+      if (!u.dead && dist(ship, u) < ship.radius + u.radius * 0.82) {
+        if (ship.shieldActive) {
+          ship.shieldActive = false;
+          u.dead = true;
+          score += UFO_POINTS[u.size];
+          explode(u.x, u.y, u.size * 5);
+          newUfos.push(...u.split());
+        } else {
+          killShip();
+        }
+        break;
+      }
+    }
+  }
+
+  // Consolidar recién acá: si se filtrara antes de las colisiones con la nave,
+  // los fragmentos que genera el escudo se perderían
+  asteroids = asteroids.filter(a => !a.dead).concat(newAsteroids);
+  ufos      = ufos.filter(u => !u.dead).concat(newUfos);
+  bullets   = bullets.filter(b => !b.dead);
+
   // Nivel completado
-  if (asteroids.length === 0) nextLevel();
+  if (asteroids.length === 0 && ufos.length === 0) nextLevel();
 }
 
 // ── Draw ──────────────────────────────────────────────────────────────────────
@@ -452,6 +584,7 @@ function draw() {
 
   particles.forEach(p => p.draw());
   asteroids.forEach(a => a.draw());
+  ufos.forEach(u => u.draw());
   bullets.forEach(b => b.draw());
   ship.draw();
 
