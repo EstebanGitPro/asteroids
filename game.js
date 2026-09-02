@@ -151,12 +151,16 @@ class Ship {
     this.invincible    = 3;
     this.shootCooldown = 0;
     this.dead          = false;
+    this.shieldActive  = true;
+    this.shieldDuration = 5;
   }
 
   update(dt) {
     if (this.dead) return;
     if (this.invincible    > 0) this.invincible    -= dt;
     if (this.shootCooldown > 0) this.shootCooldown -= dt;
+    if (this.shieldActive && this.shieldDuration > 0) this.shieldDuration -= dt;
+    if (this.shieldDuration <= 0) this.shieldActive = false;
 
     const ROT   = 3.5;   // rad/s
     const THRUST = 260;  // px/s²
@@ -193,6 +197,25 @@ class Ship {
 
     ctx.save();
     ctx.translate(this.x, this.y);
+
+    // Escudo de energía
+    if (this.shieldActive) {
+      const shieldRadius = this.radius + 10;
+      const alpha = Math.max(0, this.shieldDuration / 5);
+      const pulse = Math.sin(Date.now() / 200) * 0.3 + 0.7;
+      ctx.strokeStyle = `rgba(0, 200, 255, ${alpha * pulse})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, shieldRadius, 0, Math.PI * 2);
+      ctx.stroke();
+      // Línea punteada interior
+      ctx.strokeStyle = `rgba(0, 150, 255, ${alpha * pulse * 0.5})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(0, 0, shieldRadius - 4, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
     ctx.rotate(this.angle);
     ctx.strokeStyle = '#fff';
     ctx.lineWidth   = 1.5;
@@ -348,6 +371,10 @@ function update(dt) {
         score += POINTS[a.size];
         explode(a.x, a.y, a.size * 5);
         newAsteroids.push(...a.split());
+        if (a.size === 3) {
+          ship.shieldActive = true;
+          ship.shieldDuration += 2;
+        }
       }
     }
   }
@@ -358,7 +385,15 @@ function update(dt) {
   if (ship.invincible <= 0) {
     for (const a of asteroids) {
       if (dist(ship, a) < ship.radius + a.radius * 0.82) {
-        killShip();
+        if (ship.shieldActive) {
+          ship.shieldActive = false;
+          a.dead = true;
+          score += POINTS[a.size];
+          explode(a.x, a.y, a.size * 5);
+          newAsteroids.push(...a.split());
+        } else {
+          killShip();
+        }
         break;
       }
     }
