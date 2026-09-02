@@ -371,7 +371,7 @@ function update(dt) {
         score += POINTS[a.size];
         explode(a.x, a.y, a.size * 5);
         newAsteroids.push(...a.split());
-        if (a.size === 3) {
+        if (a.size === 1) {
           ship.shieldActive = true;
           ship.shieldDuration += 2;
         }
